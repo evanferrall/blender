@@ -1,0 +1,137 @@
+bl_info = {
+    "name": "Multi-Image ",
+    "author": "Your Name",
+    "version": (1, 1),
+    "blender": (3, 5, 0),
+    "location": "View3D > N-Panel > Reference Images",
+    "description": "Add and manage multiple reference images in a separate window",
+    "warning": "",
+    "wiki_url": "",
+    "category": "3D View",
+}
+
+import bpy
+import os
+from bpy.types import (
+    Operator,
+    Panel,
+    PropertyGroup,
+)
+from bpy.props import (
+    StringProperty,
+    CollectionProperty,
+    IntProperty,
+)
+
+class MultiImageReference(PropertyGroup):
+    filepath: StringProperty(
+        name="Image",
+        subtype='FILE_PATH',
+        default="",
+    )
+
+class IMAGE_OT_open_reference_image(bpy.types.Operator):
+    bl_idname = "image.open_reference_image"
+    bl_label = "Open Reference Image"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def invoke(self, context, event):
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
+
+    def execute(self, context):
+        if os.path.isfile(self.filepath):
+            img = bpy.data.images.load(self.filepath)
+            context.scene.multi_image_references.add().name = img.name
+            return {'FINISHED'}
+        else:
+            self.report({'ERROR'}, f"Cannot read '{self.filepath}': No such file or directory")
+            return {'CANCELLED'}
+
+    filepath: bpy.props.StringProperty(subtype='FILE_PATH')
+
+class IMAGE_OT_remove_reference_image(Operator):
+    bl_idname = "image.remove_reference_image"
+    bl_label = "Remove Reference Image"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    index: IntProperty()
+
+    def execute(self, context):
+        context.scene.multi_image_references.remove(self.index)
+        return {'FINISHED'}
+
+class IMAGE_OT_open_reference_viewer(Operator):
+    bl_idname = "image.open_reference_viewer"
+    bl_label = "Open Reference Viewer"
+    bl_options = {'REGISTER'}
+
+    image_name: StringProperty()
+
+    def execute(self, context):
+        if self.image_name in bpy.data.images:
+            image = bpy.data.images[self.image_name]
+
+            # Create a new workspace
+            workspace = bpy.data.workspaces("Image_Editor")
+            context.window_manager.windows[0].workspace = workspace
+
+            # Set the area type to IMAGE_EDITOR
+            area = workspace.screens[0].areas[0]
+            area.type = 'IMAGE_EDITOR'
+
+            # Set the image in the new area
+            for space in area.spaces:
+                if space.type == 'IMAGE_EDITOR':
+                    space.image = image
+                    space.show_region_toolbar = False
+                    space.show_region_ui = False
+
+        else:
+            self.report({'ERROR'}, f"Image '{self.image_name}' not found")
+        return {'FINISHED'}
+
+
+class IMAGE_PT_multi_image_references(Panel):
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Reference Images"
+    bl_label = "Multi-Image"
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+
+        for i, ref in enumerate(scene.multi_image_references):
+            box = layout.box()
+            row = box.row(align=True)
+            op = row.operator(IMAGE_OT_open_reference_viewer.bl_idname, text="", icon="IMAGE_REFERENCE")
+            op.image_name = ref.name
+            row.prop_search(ref, "name", bpy.data, "images", text="")
+            row.operator(IMAGE_OT_remove_reference_image.bl_idname, text="", icon="X").index = i
+
+        layout.operator("image.open_reference_image", icon="FILE_IMAGE", text="Add Image")
+
+
+classes = (
+    MultiImageReference,
+    IMAGE_OT_open_reference_image,
+    IMAGE_OT_remove_reference_image,
+    IMAGE_OT_open_reference_viewer,
+    IMAGE_PT_multi_image_references,
+)
+
+def register():
+    for cls in classes:
+        bpy.utils.register_class(cls)
+
+    bpy.types.Scene.multi_image_references = CollectionProperty(type=MultiImageReference)
+
+def unregister():
+    for cls in reversed(classes):
+        bpy.utils.unregister_class(cls)
+    del bpy.types.Scene.multi_image_references
+
+if __name__ == "__main__":
+    register()
+
